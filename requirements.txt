@@ -1,0 +1,14 @@
+requests
+pandas
+transformers
+torch
+matplotlib
+seaborn
+protobuf
+sentencepiece
+tiktoken
+yake
+keybert
+bertopic
+nltk
+wordcloud
