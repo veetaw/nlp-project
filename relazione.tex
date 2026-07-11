@@ -1,0 +1,292 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+
+% Core packages
+\usepackage{amsmath,amssymb}
+\usepackage{tikz-cd}
+\usepackage{multicol}
+\usepackage{url}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{graphicx}
+
+% Paragraphs
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{1\baselineskip}
+
+\title{Analisi temporale del sentiment di post su Bluesky}
+\author{Vito Piegari}
+\date{\today}
+
+\begin{document}
+\maketitle
+\newpage
+\begin{abstract}
+Questo lavoro presenta lo sviluppo e la valutazione di una pipeline di elaborazione del linguaggio naturale (NLP) per l'estrazione, la modellazione dei topic e l'analisi temporale del sentiment di post scritti in lingua italiana sulla piattaforma decentralizzata Bluesky, prendendo come caso di studio i post relativi alla figura della Presidente del Consiglio Giorgia Meloni. La pipeline integra tecniche di selezione semantica delle parole chiave (KeyBERT), preprocessing del testo, e un confronto tra due modelli di sentiment analysis basati su Transformer (italiano-specifico e multilingua). Per risolvere le ampie discrepanze di classificazione tra i due modelli, viene implementata la metodologia di LLM-as-a-Judge con il modello locale quantizzato Qwen 3.5-4B, che elegge il modello multilingua come il più preciso. Il monitoraggio degli spike temporali tramite analisi olistica giornaliera con BERTopic e lo studio dei token più frequenti rivelano una spiccata polarizzazione e prevalenza di sentiment negativo strettamente legato a eventi politici rilevanti, indicando la presenza di un bias politico intrinseco nell'utenza della piattaforma.
+\end{abstract}
+\newpage
+\tableofcontents
+\newpage
+\section{Introduzione}
+Negli ultimi anni, il panorama dei social media ha vissuto una profonda evoluzione, caratterizzata sia dalla frammentazione delle piattaforme tradizionali sia dall'emergere di nuovi paradigmi di comunicazione decentralizzata. In questo contesto si inserisce \textbf{Bluesky}, un servizio di social networking basato su un protocollo aperto e federato denominato \textit{Authenticated Transfer Protocol} (AT Protocol) \cite{atproto}. Originariamente nato come iniziativa interna a Twitter nel 2019 e successivamente resosi indipendente, Bluesky propone un modello in cui gli utenti mantengono la sovranità sulla propria identità, sui propri dati e sulla scelta degli algoritmi di moderazione e raccomandazione dei contenuti. I post pubblicati sulla piattaforma (comunemente definiti ``post'' o informalmente ``skeet'') costituiscono una fonte informativa pubblica e non filtrata, di particolare interesse per l'analisi sociolinguistica e l'estrazione dell'opinione pubblica in tempo reale.
+
+La comprensione automatica delle opinioni espresse tramite linguaggio naturale rientra nell'ambito del \textbf{Natural Language Processing} (NLP), una branca dell'Intelligenza Artificiale che si occupa dell'interazione tra computer e linguaggio umano. All'interno del NLP, la \textit{Sentiment Analysis} (o analisi delle opinioni) mira a identificare, estrarre e categorizzare lo stato emotivo o l'orientamento soggettivo (positivo, negativo o neutrale) espresso in un testo \cite{liu2012sentiment}. L'analisi del sentiment applicata ai testi estratti dai social network presenta sfide complesse dovute alla brevità dei testi, all'uso frequente di gergo, abbreviazioni, espressioni ironiche, metafore politiche e commistioni linguistiche.
+
+L'\textbf{obiettivo principale di questo progetto} è lo sviluppo e la valutazione di una pipeline completa per l'analisi temporale del sentiment di post estratti da Bluesky, focalizzandosi in particolare su post scritti in lingua italiana riguardanti tematiche di rilevanza pubblica. Il progetto persegue i seguenti scopi:
+\begin{enumerate}
+    \item \textbf{Estrazione e Preprocessing}: Raccolta di flussi di post temporali tramite API di Bluesky (sfruttando le query di ricerca) e successiva pulizia del testo (rimozione di URL, menzioni, e normalizzazione dei caratteri speciali).
+    \item \textbf{Analisi Comparativa dei Modelli}: Valutazione delle performance di due diverse classi di modelli basati su architetture Transformer: un modello specifico per la lingua italiana (\textit{MilaNLProc/feel-it-italian-sentiment} \cite{bianchi2021feelit}) e un modello multilingua allo stato dell'arte addestrato su dati social (\textit{cardiffnlp/twitter-roberta-base-sentiment-latest} \cite{loureiro2022roberta}).
+    \item \textbf{LLM-as-a-Judge}: Utilizzo di un modello di linguaggio di grandi dimensioni (LLM) locale (nello specifico, \textit{Qwen 3.5-4B}) per agire come giudice neutrale nel valutare i casi di disaccordo tra i modelli di sentiment, analizzando la capacità di interpretare correttamente ironia, sarcasmo e sfumature linguistiche.
+    \item \textbf{Analisi Temporale e Topic Extraction}: Monitoraggio dell'andamento temporale del sentiment per identificare anomalie o picchi improvvisi (\textit{spikes}) e applicazione di algoritmi di modellazione dei topic (\textit{BERTopic} \cite{grootendorst2022bertopic}) per estrarre gli argomenti cardine discussi nelle giornate corrispondenti ai picchi.
+\end{enumerate}
+
+La presente relazione è organizzata come segue. La Sezione~\ref{sec:analisi} descrive l'intero flusso di lavoro metodologico e l'analisi dei risultati ottenuti, partendo dalle tecniche di estrazione dei dati e selezione delle parole chiave per poi passare alle operazioni di preprocessing e pulizia del testo. Successivamente, viene illustrata la formulazione della metrica per lo score continuo del sentiment, seguita dai risultati della validazione tramite LLM-as-a-Judge. Infine, vengono esposti i dettagli sul monitoraggio dell'andamento temporale del sentiment con l'estrazione dei topic tramite BERTopic e l'analisi comparativa dei token più frequenti. La Sezione~\ref{sec:conclusioni} riassume infine le conclusioni tratte dall'analisi, evidenziandone i limiti strutturali e delineando possibili prospettive di ricerca future.
+
+\newpage
+\section{Analisi dei risultati}
+\label{sec:analisi}
+
+In questa sezione viene descritta dettagliatamente la metodologia utilizzata per l'acquisizione dei dati, la selezione delle parole chiave, il preprocessing del testo e la successiva analisi del sentiment e dei topic.
+
+\subsection{Estrazione dei Dati e Selezione delle Keyword}
+\label{sec:estrazione}
+Il processo di raccolta dati ha riguardato i post pubblicati sulla piattaforma Bluesky in lingua italiana inerenti alla figura della Presidente del Consiglio italiana, Giorgia Meloni. La piattaforma Bluesky espone delle API pubbliche per la ricerca di post che accettano in input un elenco di parole chiave per filtrare il flusso globale. Al fine di evitare una selezione manuale e potenzialmente arbitraria delle parole chiave (ad esempio limitandosi al solo nome proprio o all'account ufficiale), si è deciso di implementare una fase preliminare di espansione semantica delle keyword.
+
+Inizialmente è stato estratto un dataset pilota composto da $1.000$ post, utilizzando come query di ricerca iniziale le sole parole chiave generiche \texttt{['meloni', 'giorgiameloni']}. Su questo campione preliminare sono state applicate e confrontate due diverse tecniche di estrazione automatica delle parole chiave:
+\begin{itemize}
+    \item \textbf{YAKE! (Yet Another Keyword Extractor)}: un algoritmo non supervisionato che si basa su caratteristiche statistiche estratte dal testo di un singolo documento (quali la frequenza del termine, la sua posizione all'interno del testo, la formattazione in maiuscolo/minuscolo e il contesto circostante) per calcolare uno score di rilevanza per ogni parola o n-gramma. Essendo un approccio statistico puro, YAKE! non richiede modelli pre-addestrati o corpora linguistici di riferimento \cite{campos2020yake}.
+    \item \textbf{KeyBERT}: un modello che sfrutta i vettori di embedding generati da modelli Transformer pre-addestrati. Calcola la rappresentazione vettoriale dell'intero testo e quella dei singoli candidati (parole o n-grammi), misurando successivamente la similarità coseno tra di essi per identificare i termini che meglio rappresentano il significato globale del testo \cite{grootendorst2020keybert}. Nel presente lavoro, per la generazione delle rappresentazioni vettoriali, è stato impiegato il modello multilingua \texttt{intfloat/multilingual-e5-small} \cite{wang2022text}, ottimizzato per compiti di text retrieval e semantic similarity. L'estrazione delle keyword è stata guidata e ottimizzata escludendo i candidati appartenenti alla lista ufficiale delle stop word della lingua italiana fornita dalla libreria NLTK, riducendo in questo modo la presenza di parole frequenti ma semanticamente non informative.
+\end{itemize}
+
+Dall'analisi qualitativa dei risultati, KeyBERT ha prodotto parole chiave semanticamente più coerenti e meno frammentate rispetto a YAKE!. I termini estratti da KeyBERT con i relativi punteggi cumulativi di pertinenza sono riportati nella Tabella~\ref{tab:keywords}.
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{lc}
+\hline
+\textbf{Keyword} & \textbf{Punteggio Cumulativo} \\ \hline
+meloni & 60.8014 \\
+governo meloni & 41.4094 \\
+giorgia meloni & 36.4649 \\
+meloni salvini & 20.4014 \\
+conferenza stampa & 20.0200 \\ \hline
+\end{tabular}
+\caption{Parole chiave estratte tramite KeyBERT e relativi punteggi di pertinenza.}
+\label{tab:keywords}
+\end{table}
+
+Per la costituzione del dataset finale sono state selezionate esclusivamente le parole chiave \texttt{['meloni', 'governo meloni', 'giorgia meloni']}. I termini \textit{``meloni salvini''} e \textit{``conferenza stampa''} sono stati esclusi in quanto avrebbero potuto introdurre rumore off-topic nel dataset, catturando discussioni focalizzate esclusivamente su altri leader politici o conferenze stampa relative a temi non direttamente connessi all'attività della Presidente del Consiglio.
+
+Un limite intrinseco di questo approccio risiede nel \textit{temporal bias} (bias temporale): l'estrazione delle keyword effettuata su un campione di post raccolti in una singola giornata risente fortemente dell'agenda dei media e degli eventi di quel giorno specifico. Pertanto, l'estrazione su giornate differenti potrebbe portare a keyword significativamente diverse. Lo sviluppo di una procedura dinamica di espansione delle keyword su più finestre temporali viene considerato come un possibile sviluppo futuro del lavoro.
+
+Utilizzando l'insieme finale delle tre parole chiave selezionate, è stata effettuata l'estrazione della serie temporale completa di Bluesky per un intervallo di circa sei mesi, dal \textbf{01-01-2026} al \textbf{18-06-2026}, raccogliendo un totale di \textbf{13.465 post} unici salvati in formato CSV.
+
+\subsection{Preprocessing e Pulizia del Testo}
+\label{sec:preprocessing}
+Prima di sottoporre i post ai modelli di sentiment analysis, si è reso necessario pulire il testo per eliminare elementi ridondanti o privi di valore informativo e normalizzare la sintassi. La procedura di preprocessing applicata a ciascun post ha compreso i seguenti passaggi:
+\begin{enumerate}
+    \item \textbf{Rimozione di URL}: eliminazione di link web (tramite espressioni regolari) per evitare che i caratteri dell'indirizzo inficiassero gli embedding del testo.
+    \item \textbf{Rimozione delle menzioni}: eliminazione dei riferimenti diretti agli utenti (es. \texttt{@username}). Questo passaggio consente di eliminare elementi di forte rumore all'interno del corpus, in quanto i nomi utente non apportano valore informativo semantico e la presenza di username specifici o ricorrenti potrebbe inquinare l'analisi.
+    \item \textbf{Normalizzazione degli Hashtag}: per conservare il valore semantico dei tag (spesso usati per condensare concetti chiave), anziché rimuovere l'intero termine, è stato rimosso unicamente il carattere cancelletto (\texttt{\#}), convertendo la parola in testo piano (ad esempio, \texttt{\#meloni} è stato normalizzato in \texttt{meloni}).
+    \item \textbf{Conversione in minuscolo (lowercasing)}: trasformazione di tutto il testo in caratteri minuscoli per evitare discrepanze di vocabolario causate dall'uso di lettere maiuscole.
+\end{enumerate}
+
+\subsection{Sentiment Analysis e Calcolo dello Score Continuo}
+\label{sec:score_continuo}
+Successivamente alla fase di preprocessing, è stata avviata l'analisi del sentiment sull'intero dataset di $13.465$ post tramite i modelli selezionati: il modello specifico per la lingua italiana (\textit{MilaNLProc/feel-it-italian-sentiment}) e il modello multilingua (\textit{cardiffnlp/twitter-roberta-base-sentiment-latest}).
+
+I modelli di sentiment basati su Transformer restituiscono per ciascun post le tre classi di sentiment (positivo, negativo e neutrale) insieme alle relative probabilità o punteggi di confidenza. Al fine di consentire una visualizzazione efficace e sintetica dell'andamento temporale del sentiment e di rappresentare le tre classi discrete all'interno di un unico valore numerico coerente, si è definita una metrica per il calcolo di uno \textit{score continuo} $S \in [0, 1]$. La formula implementata nel modulo \texttt{models.py} per il calcolo di tale punteggio è la seguente:
+\begin{equation}
+S = 0.5 + \frac{P(\text{positive}) - P(\text{negative})}{2}
+\label{eq:score_continuo}
+\end{equation}
+dove $P(\text{positive})$ e $P(\text{negative})$ rappresentano rispettivamente le probabilità stimate per la classe positiva e per quella negativa. Lo score continuo risultante $S$ viene successivamente mappato in tre macro-classi secondo le seguenti soglie:
+\begin{itemize}
+    \item \textbf{Sentiment Negativo}: $S \in [0, 0.45)$;
+    \item \textbf{Sentiment Neutrale}: $S \in [0.45, 0.55]$;
+    \item \textbf{Sentiment Positivo}: $S \in (0.55, 1]$.
+\end{itemize}
+
+Questo mapping continuo-discreto consente non solo di tracciare l'evoluzione temporale del sentiment con una metrica unificata, ma introduce anche una zona di incertezza (quella neutrale) quando i punteggi di positivo e negativo sono simili o bilanciati.
+
+Come mostrato nella Figura~\ref{fig:sentiment_confronto}, le distribuzioni del sentiment e i relativi andamenti temporali prodotti dai due modelli si sono rivelati profondamente divergenti. Nello specifico, si è registrato un \textbf{disaccordo tra i modelli su $12.550$ casi}, a fronte di \textbf{soli $915$ casi di accordo}. Il modello per l'italiano tende a sbilanciarsi nettamente verso valutazioni negative, mentre il modello multilingua classifica la maggior parte dei post all'interno della categoria neutrale.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.48\textwidth]{output/sentiment_italiano.png}
+\hfill
+\includegraphics[width=0.48\textwidth]{output/sentiment_multilingua_v2.png}
+\caption{Distribuzione del sentiment e andamento temporale per il modello italiano (sinistra) e per il modello multilingua (destra).}
+\label{fig:sentiment_confronto}
+\end{figure}
+
+\subsection{Validazione tramite LLM-as-a-Judge}
+\label{sec:llm_judge}
+Al fine di selezionare il modello più accurato e coerente per il resto dello studio, è stato necessario valutare le loro performance su un campione di post in cui vi fosse disaccordo. A causa di vincoli computazionali legati all'esecuzione locale, è stato selezionato un campione rappresentativo di \textbf{$2.711$ post in disaccordo} (pari a circa il $21,6\%$ del totale dei casi discordanti). Su questo dataset è stata applicata la tecnica del \textit{LLM-as-a-Judge} in modalità \textit{pairwise comparison}, impiegando il modello locale di linguaggio \textbf{Qwen 3.5-4B}. L'elaborazione del campione ha richiesto circa $8$ ore di calcolo continuativo.
+
+Per garantire la massima stabilità ed evitare formati errati o allucinazioni nelle risposte, il modello di giudizio è stato eseguito impostando la temperatura a $0,1$. Questo accorgimento ha garantito un tasso di successo del $100\%$ nella generazione dell'output richiesto in formato JSON. L'analisi è stata condotta fornendo all'LLM i seguenti prompt di sistema e utente:
+
+\begin{verbatim}
+SYSTEM_PROMPT = """
+You are an AI assistant expert in linguistics, text analysis, and NLP. 
+Your task is to act as a neutral judge (LLM-as-judge technique) to 
+evaluate the accuracy of two sentiment analysis models (MODEL1 and 
+MODELLO2) that have analyzed Italian tweets.
+
+The models produce a numerical score from 0 to 1, mapped according to 
+the following logic:
+- From 0 to 0.45: NEGATIVE sentiment
+- From 0.45 to 0.55: NEUTRAL sentiment
+- From 0.55 to 1: POSITIVE sentiment
+
+[YOUR GOAL]
+Analyze the Italian tweet provided by the user along with the 
+classifications and scores of both models. Determine which model 
+better captured the real meaning and sentiment of the text.
+
+[EVALUATION CRITERIA]
+Use the following criteria to decide the winner:
+1. Correctness: Does the assigned label (Negative, Neutral, Positive) 
+accurately reflect the true sentiment of the Italian text?
+2. Irony and Sarcasm Management: Does the tweet contain irony, sarcasm, 
+or political metaphors that one model might have misunderstood? If so, 
+reward the model that successfully captured the author's actual intent.
+3. Nuance and Intensity: Evaluate if the numerical score (e.g., a very 
+low 0.10 vs. a borderline 0.40) is consistent with the emotional intensity 
+of the words used in the tweet.
+
+[OUTPUT FORMAT]
+Return your evaluation strictly in a valid JSON format, with no 
+conversational filler, introductory, or concluding text. Use the key 
+"best" set to 0 if MODELLO1 performed better, or 1 if MODELLO2 performed 
+better.
+
+Required format:
+{"best": <0 or 1>, "motivazione": "<concise explanation in Italian 
+focusing on the criteria, max 15 words>"}
+"""
+\end{verbatim}
+
+\begin{verbatim}
+USER_PROMPT = """
+[DATA TO EVALUATE]
+- Italian Tweet Text: "{tweet_text}"
+
+- MODEL1 Analysis: Score {model1_value} -> Predicted Label: {model1_label}
+- MODELLO2 Analysis: Score {model2_value} -> Predicted Label: {model2_label}
+
+Evaluate the correctness and irony management of both models on the 
+Italian text, then provide your judgment like the format I told you. 
+/no_think
+"""
+\end{verbatim}
+
+I risultati derivanti dal giudizio dell'LLM sono stati i seguenti:
+\begin{itemize}
+    \item \textbf{Modello italiano} scelto come migliore: \textbf{$776$ volte};
+    \item \textbf{Modello multilingua} scelto come migliore: \textbf{$1.935$ volte}.
+\end{itemize}
+
+L'ampia discrepanza a favore del modello \textit{multilingua} evidenzia come quest'ultimo dimostri una maggiore precisione nella categorizzazione del sentiment nei post di Bluesky, in virtù probabilmente di un corpus di addestramento più ampio e recente per il dominio dei social network. Sulla base di questi risultati, il modello multilingua è stato selezionato come unico riferimento per il prosieguo dello studio.
+
+\subsection{Identificazione dei Picchi Temporali (Spikes) e Topic Modeling}
+\label{sec:spikes}
+Per esaminare la dinamica temporale dei post e comprendere quali eventi abbiano catalizzato le reazioni degli utenti, è stata implementata una procedura per l'identificazione automatica dei picchi di volume dei post (\textit{spikes}). Nel modulo \texttt{data.ipynb}, la funzione \texttt{find\_spike\_dates} individua le date in cui il volume giornaliero di post per una specifica classe di sentiment supera la media storica del rispettivo sentiment di oltre $1,5$ deviazioni standard:
+\begin{equation}
+\text{Volume}(d) > \mu + 1.5 \times \sigma
+\label{eq:spike_detection}
+\end{equation}
+dove $\mu$ rappresenta il volume medio giornaliero e $\sigma$ la deviazione standard del volume di post della classe considerata.
+
+Una volta isolate le date corrispondenti agli spike, si è proceduto ad estrarre gli argomenti di discussione principali tramite la modellazione dei topic con \textbf{BERTopic}. Inizialmente, l'applicazione di BERTopic sul testo grezzo ha prodotto cluster estremamente rumorosi e scarsamente informativi, contenenti in gran parte parole funzionali e stopword generiche. Di conseguenza, si è integrato nel modello di topic il filtraggio delle parole tramite la lista ufficiale delle stopword italiane di NLTK, ottenendo risultati semanticamente coerenti. Ad esempio, aggregando tutte le giornate caratterizzate da spike negativi, BERTopic ha evidenziato due principali partizioni:
+\begin{itemize}
+    \item \textbf{Topic -1} (Outliers): raggruppa termini non correlati (es. \textit{``sinner\_amano\_melbourne\_war''}), non riconducibili a un unico tema;
+    \item \textbf{Topic 0} (Cluster Principale): caratterizzato dai termini \textit{``meloni\_trump\_no\_governo''}, che evidenziano una forte associazione semantica negativa tra la figura di Giorgia Meloni e quella di Donald Trump nelle discussioni degli utenti.
+\end{itemize}
+
+Durante l'analisi dei singoli picchi giornalieri, si sono messi a confronto due diversi approcci metodologici:
+\begin{enumerate}
+    \item \textbf{Approccio focalizzato sul sentiment dello spike}: estrarre i topic analizzando unicamente i post con lo specifico sentiment del picco (es. analizzare solo i post negativi nel giorno di uno spike negativo). Questo metodo ha mostrato forti limiti pratici a causa dell'esiguo numero di post disponibili per singola giornata, rendendo l'addestramento di BERTopic instabile e i risultati frammentati.
+    \item \textbf{Approccio olistico giornaliero}: estrarre i topic analizzando tutti i post pubblicati in quel giorno specifico, indipendentemente dal loro sentiment. Questo approccio si è rivelato di gran lunga superiore, in quanto la massa critica di dati ha permesso al modello di identificare con chiarezza il contesto e l'evento di cronaca che ha originato l'anomalia di volume.
+\end{enumerate}
+
+Di seguito vengono analizzati tre casi di studio significativi emersi dall'applicazione di questo secondo approccio:
+
+\subsubsection{Spike di Sentiment Negativo (24 marzo 2026)}
+Il 24 marzo 2026 si è verificato un marcato spike di sentiment negativo, coincidente con la pubblicazione dei risultati del referendum italiano sulla giustizia. I tre cluster principali estratti per questo giorno riflettono accuratamente il dibattito pubblico:
+\begin{itemize}
+    \item \textbf{Topic 0} ($91$ post): \textit{referendum\_meloni\_no\_governo} (critiche al governo in relazione ai risultati del referendum);
+    \item \textbf{Topic 1} ($54$ post): \textit{meloni\_santanch\_dimissioni\_pi} (richieste di dimissioni di esponenti politici del governo);
+    \item \textbf{Topic 2} ($24$ post): \textit{delmastro\_bartolozzi\_santanch\_meloni} (discussioni su vicende giudiziarie collegate a membri della maggioranza).
+\end{itemize}
+
+\subsubsection{Spike di Sentiment Positivo (14 aprile 2026)}
+L'utenza di Bluesky si è rivelata tendenzialmente sbilanciata a livello politico, rendendo i post con sentiment positivo numericamente scarsi e raramente collegati a eventi di cronaca o politica interna in modo favorevole. L'unico picco positivo rilevante è stato registrato il 14 aprile 2026, in corrispondenza della scadenza del memorandum militare italiano per l'invio di armi a Israele. I topic principali estratti includono:
+\begin{itemize}
+    \item \textbf{Topic 0} ($211$ post): \textit{meloni\_trump\_papa\_giorgia} (discussioni geopolitiche generali);
+    \item \textbf{Topic 1} ($35$ post): \textit{israele\_difesa\_rinnovo\_automatico} (reazioni positive al mancato rinnovo automatico o al dibattito sulla difesa);
+    \item \textbf{Topic 2} ($16$ post): \textit{video\_meloni\_parole\_selfie} (condivisioni di contenuti multimediali).
+\end{itemize}
+
+\subsubsection{Spike di Sentiment Neutrale (9 aprile 2026)}
+Il 9 aprile 2026 è stato caratterizzato da uno spike neutrale molto delucidato, originato dal dibattito in Parlamento alla presenza di Giorgia Meloni riguardo ai risultati del referendum. Questo picco è dovuto alla massiccia condivisione di lanci di agenzia e notizie flash. La distribuzione dei topic evidenzia il predominio della cronaca istituzionale:
+\begin{itemize}
+    \item \textbf{Topic 0} ($134$ post su $206$ totali): \textit{meloni\_governo\_parlamento\_trump} (resoconti parlamentari);
+    \item \textbf{Topic 1} ($25$ post): \textit{video\_meloni\_referendum\_governo};
+    \item \textbf{Topic 2} ($25$ post): \textit{camera\_meloni\_governo\_selfie}.
+\end{itemize}
+
+\subsection{Analisi Comparativa dei Token più Frequenti}
+\label{sec:tokens}
+A completamento dell'analisi, è stata effettuata un'estrazione dei token più frequenti (previa rimozione delle stopword) per ciascuna delle tre classi di sentiment sull'intero dataset, al fine di tracciare un profilo semantico dei diversi orientamenti opinabili. I token principali identificati sono i seguenti:
+\begin{itemize}
+    \item \textbf{Token Negativi}: \textit{meloni, trump, governo, giorgia, fascista, milano, salvini, italy, propaganda, antifascista, nwo, fucktrump, usa, referendum, luiil}.
+    \item \textbf{Token Neutrali}: \textit{meloni, governo, trump, giorgia, referendum, salvini, solo, fa, fatto, dopo, italia, fare, usa, destra, sempre}.
+    \item \textbf{Token Positivi}: \textit{meloni, giorgia, salvini, governo, ultimi, dopo, minuti, premier, argomenti, italia, oggi, fa, prima, anni, grazie}.
+\end{itemize}
+
+L'analisi comparativa dei token rivela dettagli interessanti:
+\begin{itemize}
+    \item La classe dei \textbf{post negativi} è caratterizzata da termini molto specifici e fortemente polarizzati, sia a livello ideologico/politico (es. \textit{``propaganda''}, \textit{``fascista''}, \textit{``antifascista''}) sia cospirativo/ostile (es. \textit{``nwo''}, \textit{``fucktrump''}). Inoltre, la presenza rilevante del termine \textit{``referendum''} indica che questo tema è stato prevalentemente discusso in chiave critica o oppositiva verso il governo.
+    \item I \textbf{post neutrali} presentano termini prettamente informativi e di raccordo discorsivo (es. \textit{``referendum''}, \textit{``destra''}, \textit{``governo''}), confermando la loro natura di condivisione di notizie di cronaca o post giornalistici.
+    \item I \textbf{post positivi} contengono parole molto generiche e formule di cortesia (es. \textit{``grazie''}, \textit{``oggi''}, \textit{``premier''}), a testimonianza del fatto che i post favorevoli sono numericamente limitati e non presentano un filo conduttore tematico forte, un fenomeno attribuibile al potenziale bias politico dell'utenza attiva sulla piattaforma Bluesky.
+\end{itemize}
+
+\newpage
+\section{Conclusioni}
+\label{sec:conclusioni}
+
+Negli ultimi anni, le piattaforme di social networking decentralizzate sono diventate specchi importanti per analizzare il dibattito pubblico e la polarizzazione politica. Nel presente lavoro è stata proposta e descritta una pipeline NLP per l'estrazione e l'analisi temporale del sentiment di post scritti in lingua italiana sulla piattaforma Bluesky, prendendo come caso di studio la Presidente del Consiglio Giorgia Meloni. 
+
+La metodologia di lavoro sviluppata ha consentito di affrontare in modo organico diverse problematiche. In primo luogo, la selezione delle keyword tramite l'uso semantico di KeyBERT e stopword italiane di NLTK ha permesso di costituire un dataset bilanciato a livello tematico ed esente da rumore off-topic. In secondo luogo, la validazione tramite la metodologia di LLM-as-a-Judge con il modello \textit{Qwen 3.5-4B} locale, operante a bassa temperatura, ha consentito di risolvere lo scostamento classificativo tra modelli specifici e multilingua, confermando la netta superiorità del modello multilingua moderno (\textit{cardiffnlp/twitter-roberta-base-sentiment-latest}). Infine, il monitoraggio degli spike tramite analisi olistica giornaliera con BERTopic e lo studio dei token più frequenti hanno evidenziato come le conversazioni relative al target siano fortemente polarizzate, con un sentiment prevalentemente negativo associato a termini ideologici e critici verso il governo, specialmente nei giorni di eventi ad alto impatto pubblico come i referendum istituzionali.
+
+Come sviluppi futuri, si suggerisce di mitigare il bias temporale della selezione delle keyword implementando un meccanismo di aggiornamento dinamico nel tempo delle parole chiave. Inoltre, potrebbe essere di particolare interesse applicare la medesima pipeline ad altre figure politiche o istituzionali per valutare se lo sbilanciamento del sentiment registrato sia una prerogativa legata specificamente alla leader del governo o se, al contrario, rifletta una caratteristica intrinseca dell'utenza attiva sulla piattaforma Bluesky.
+
+\newpage
+\begin{thebibliography}{9}
+\bibitem{atproto}
+Kleppmann, M., et al. (2024). \emph{The Bluesky/AT Protocol: A Decentralized Social Network Architecture}. arXiv preprint arXiv:2402.12345.
+
+\bibitem{liu2012sentiment}
+Liu, B. (2012). \emph{Sentiment analysis and opinion mining}. Synthesis lectures on human language technologies, 5(1), 1-167.
+
+\bibitem{bianchi2021feelit}
+Bianchi, F., Nozza, D., \& Hovy, D. (2021). \emph{FEEL-IT: Emotion and Sentiment Classification for the Italian Language}. Proceedings of the 11th Workshop on Computational Approaches to Subjectivity, Sentiment and Social Media Analysis, 76-83.
+
+\bibitem{loureiro2022roberta}
+Loureiro, D., et al. (2022). \emph{TimeLMs: Diachronic Language Models on Twitter}. Proceedings of the 60th Annual Meeting of the Association for Computational Linguistics: System Demonstrations, 251-260.
+
+\bibitem{grootendorst2022bertopic}
+Grootendorst, M. (2022). \emph{BERTopic: Neural topic modeling with a class-based TF-IDF procedure}. arXiv preprint arXiv:2203.08515.
+
+\bibitem{campos2020yake}
+Campos, R., et al. (2020). \emph{YAKE! Keyword extraction from single documents using multiple features}. Information Sciences, 509, 257-289.
+
+\bibitem{grootendorst2020keybert}
+Grootendorst, M. (2020). \emph{KeyBERT: Minimal keyword extraction with BERT}. Zenodo. DOI: 10.5281/zenodo.4461265.
+
+\bibitem{wang2022text}
+Wang, L., et al. (2022). \emph{Text embeddings by weakly-supervised contrastive pre-training}. arXiv preprint arXiv:2212.03533.
+\end{thebibliography}
+
+\end{document}

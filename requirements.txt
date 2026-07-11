@@ -12,3 +12,4 @@ keybert
 bertopic
 nltk
 wordcloud
+openai

@@ -51,14 +51,17 @@ if __name__ == "__main__":
                 for kw, score in keywords:
                     print(f"{kw:<45} | {score:.4f}")
     """
-    israel_df = pd.read_csv(r"datasets\bluesky_israel_1000_data.csv")
+    israel_df = pd.read_csv(r"C:\dev\nlp\datasets\bluesky_sentiment_dataset_kw_meloni_giorgiameloni_premier.csv")
     palestine_df = pd.read_csv(
         r"C:\dev\nlp\bluesky_time_series_data_WITH_SENTIMENT.csv")
+
+    tp = TextPreprocessor()
+    palestine_df['text_clean'] = tp.preprocess(palestine_df['text_clean'].astype(str).tolist())
 
     from keybert import KeyBERT
 
     kw_model = KeyBERT(
-        model="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
+        model="intfloat/multilingual-e5-large")
 
     combined_text = " ".join(palestine_df['text_clean'].astype(str).tolist())
 
