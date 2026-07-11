@@ -83,7 +83,6 @@ class BlueskyDataExtractor:
                 if not cursor:
                     break
 
-        print(f"Fetched {len(all_posts)} posts for keywords: {keywords}")
         return all_posts
 
     def fetch_time_series_by_keywords(self, keywords, max_results_per_range, start_time, end_time):
@@ -99,8 +98,6 @@ class BlueskyDataExtractor:
             since_iso = current_date.strftime("%Y-%m-%dT00:00:00Z")
             until_iso = (current_date + timedelta(days=1)
                          ).strftime("%Y-%m-%dT00:00:00Z")
-
-            print(f"Scraping intermezzo temporale: {since_iso} -> {until_iso}")
 
             for keyword in keywords:
                 fetched = 0
@@ -123,9 +120,7 @@ class BlueskyDataExtractor:
                             search_url, params=params, headers=self.headers)
                         response.raise_for_status()
                         data = response.json()
-                    except requests.exceptions.HTTPError as e:
-                        print(
-                            f"Errore nella richiesta per la keyword '{keyword}' in data {since_iso}: {e}")
+                    except requests.exceptions.HTTPError:
                         break
 
                     posts = data.get("posts", [])
@@ -170,6 +165,4 @@ class BlueskyDataExtractor:
 
             current_date += timedelta(days=1)
 
-        print(
-            f"Estrazione completata. Raccolti {len(time_series_data)} post totali.")
         return time_series_data

@@ -51,8 +51,6 @@ class SentimentAnalyzer:
         multi_results = []
         spec_results = []
 
-        print(f"Inizio analisi su {total_texts} post...")
-
         for i in range(0, total_texts, batch_size):
             batch_texts = texts[i:i + batch_size]
 
@@ -63,11 +61,6 @@ class SentimentAnalyzer:
 
             multi_results.extend(multi_batch)
             spec_results.extend(spec_batch)
-
-            processed_count = min(i + batch_size, total_texts)
-            percentage = int((processed_count / total_texts) * 100)
-            print(
-                f"Progresso: {percentage}% completato ({processed_count}/{total_texts})")
 
         dataframe["sent_ml_score"] = [
             SentimentAnalyzer.compute_continuous_score(r) for r in multi_results]
@@ -104,9 +97,6 @@ class SentimentAnalyzer:
         batch_size = 32
         res = []
 
-        print(
-            f"Inizio analisi su {total_texts} post, uso il modello: {model_name}...")
-
         for i in range(0, total_texts, batch_size):
             batch_texts = texts[i:i + batch_size]
 
@@ -114,11 +104,6 @@ class SentimentAnalyzer:
                 batch_texts, truncation=True, max_length=512)
 
             res.extend(batch)
-
-            processed_count = min(i + batch_size, total_texts)
-            percentage = int((processed_count / total_texts) * 100)
-            print(
-                f"Progresso: {percentage}% completato ({processed_count}/{total_texts})")
 
         dataframe[f"sent_{custom_name}_score"] = [
             SentimentAnalyzer.compute_continuous_score(r) for r in res]

@@ -39,7 +39,7 @@ def main():
             SEARCH_KEYWORDS, MAX_POSTS_PER_KEYWORD)
         df = pd.DataFrame(raw_data)
     else:
-        df = pd.read_csv(r"C:\dev\nlp\bluesky_time_series_data.csv")
+        df = pd.read_csv("bluesky_time_series_data.csv")
 
     df["text_clean"] = df["text_clean"].astype(str).str.strip()
     df = df[df["text_clean"] != ""].reset_index(drop=True)
@@ -48,14 +48,13 @@ def main():
     analyzer = SentimentAnalyzer()
     df = analyzer.analyze_dataset(df)
 
-    df.to_csv(
-        r"C:\dev\nlp\outputs\meloni_with_sentiment.csv", index=False)
+    df.to_csv("output/meloni_with_sentiment.csv", index=False)
     # generate_visualizations(df)
+
 
 
 if __name__ == "__main__":
     main()
-
     # codice per scaricare la time series
     # data = BlueskyDataExtractor().fetch_time_series_by_keywords(
     #    SEARCH_KEYWORDS, MAX_POSTS_PER_KEYWORD, "01-01-2026", "18-06-2026")
