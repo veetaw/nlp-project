@@ -1,5 +1,7 @@
 # Fdb version 4
-["pdflatex"] 1783790064.18519 "c:/dev/nlp/relazione.tex" "relazione.pdf" "relazione" 1783790064.82952 0
+["pdflatex"] 1783848486.66604 "c:/dev/nlp/relazione/relazione.tex" "relazione.pdf" "relazione" 1783848487.86751 0
+  "../output/sentiment_italiano.png" 1783779431 108332 d7b0b07ce1c605f888d19c8e3161398f ""
+  "../output/sentiment_multilingua_v2.png" 1783779528 123032 1ecdb97b75107f95c9baea1a336275d7 ""
   "C:/Users/vitog/AppData/Local/MiKTeX/fonts/map/pdftex/pdftex.map" 1783768798 80909 eab91d9745dd2edfd62a31d53cd5fe15 ""
   "C:/Users/vitog/AppData/Local/MiKTeX/fonts/pk/ljfour/jknappen/ec/dpi600/tcrm1095.pk" 1783777444 12668 ba5098112191879aa32466edc5e00d9c ""
   "C:/Users/vitog/AppData/Local/MiKTeX/miktex/data/le/pdftex/pdflatex.fmt" 1783768772 13333487 1d58d4e53d3fe6ea0819eb1a7baa02ee ""
@@ -138,12 +140,10 @@
   "C:/Users/vitog/AppData/Local/Programs/MiKTeX/tex/latex/tools/multicol.sty" 1761901070 33142 efe8f4750fc02524935e7423b4bdef69 ""
   "C:/Users/vitog/AppData/Local/Programs/MiKTeX/tex/latex/url/url.sty" 1388490452 12796 8edb7d69a20b857904dd0ea757c14ec9 ""
   "C:/Users/vitog/AppData/Local/Programs/MiKTeX/tex/latex/xcolor/xcolor.sty" 1729265222 55384 b454dec21c2d9f45ec0b793f0995b992 ""
-  "c:/dev/nlp/relazione.tex" 1783790063 30080 dd8c5a3674b563f40054dc0e608bc4db ""
-  "output/sentiment_italiano.png" 1783779431 108332 d7b0b07ce1c605f888d19c8e3161398f ""
-  "output/sentiment_multilingua_v2.png" 1783779528 123032 1ecdb97b75107f95c9baea1a336275d7 ""
-  "relazione.aux" 1783790064 3112 25f6a0e8bb7970350e2ffad8b1a512c0 "pdflatex"
-  "relazione.tex" 1783790063 30080 dd8c5a3674b563f40054dc0e608bc4db ""
-  "relazione.toc" 1783790064 1071 6013962c457b3205fb5a5e9060e5da34 "pdflatex"
+  "c:/dev/nlp/relazione/relazione.tex" 1783848485 30073 6bb63ac361a4443ea29a33ea2f98fedd ""
+  "relazione.aux" 1783848487 3112 25f6a0e8bb7970350e2ffad8b1a512c0 "pdflatex"
+  "relazione.tex" 1783848485 30073 6bb63ac361a4443ea29a33ea2f98fedd ""
+  "relazione.toc" 1783848487 1071 6013962c457b3205fb5a5e9060e5da34 "pdflatex"
   (generated)
   "relazione.aux"
   "relazione.log"
